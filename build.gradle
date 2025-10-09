@@ -44,16 +44,16 @@ repositories {
 
 dependencies {
 	// MCP SDK core dependency
-	implementation 'io.modelcontextprotocol.sdk:mcp:0.10.0'
+	implementation 'io.modelcontextprotocol.sdk:mcp:0.14.1'
 	
 	// Jetty embedded server for servlet container
-	implementation 'org.eclipse.jetty:jetty-server:11.0.20'
-	implementation 'org.eclipse.jetty:jetty-servlet:11.0.20'
+	implementation 'org.eclipse.jetty:jetty-server:12.1.2'
+	implementation 'org.eclipse.jetty.ee10:jetty-ee10-servlet:12.1.2'
 	
 	// Jackson for JSON processing (required by MCP)
-	implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.0'
-	implementation 'com.fasterxml.jackson.core:jackson-core:2.17.0'
-	implementation 'com.fasterxml.jackson.core:jackson-annotations:2.17.0'
+	implementation 'tools.jackson.core:jackson-databind:3.0.0'
+	implementation 'tools.jackson.core:jackson-core:3.0.0'
+	implementation 'com.fasterxml.jackson.core:jackson-annotations:2.20'
 }
 
 // Exclude additional files from the built extension
