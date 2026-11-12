@@ -12,10 +12,11 @@ GhidrAssistMCP bridges the gap between AI-powered analysis tools and Ghidra's co
 
 - **MCP Server Integration**: Full Model Context Protocol server implementation using official SDK
 - **Dual HTTP Transports**: Supports SSE and Streamable HTTP transports for maximum client compatibility
-- **100 Explicit Tools**: Discoverable operation names with precise input contracts and read/write annotations (93 enabled by default)
+- **101 Explicit Tools**: Discoverable operation names with precise input contracts and read/write annotations (94 enabled by default)
 - **6 MCP Resource Templates**: Program-specific data resources for program info, functions, strings, imports, exports, and segments
 - **7 MCP Prompts**: Pre-built analysis prompts for common reverse engineering tasks
 - **Result Caching**: Intelligent caching system to improve performance for repeated queries
+- **Batch Pseudocode Reads**: Decompile functions together, with full source by default and explicit line pagination
 - **Async Task Support**: Long-running operations execute asynchronously with task management
 - **Multi-Program Support**: Work with multiple open programs simultaneously using `program_name`; use `list_open_programs` project paths to disambiguate duplicate filenames
 - **Application Startup**: MCP is available as soon as the project manager opens, before CodeBrowser
@@ -105,7 +106,7 @@ supported Gradle release; use it instead of a system Gradle installation.
 
 The Configuration tab allows you to:
 
-- **View all public tools** (100 total)
+- **View all public tools** (101 total)
 - **Enable/disable individual tools** using checkboxes
 - **Save configuration** to persist across sessions
 - **Monitor tool status** in real-time
@@ -172,13 +173,13 @@ Disposable static-analysis labs may pass `tool_profile=agent_lab`. This enables 
 
 ## Available tools
 
-The public catalog contains 100 explicit tools, 93 enabled by default. [The modernization review](docs/modernization-review.md) maps every previous tool to its current name and explains the architecture and remaining improvements. Fetch `tools/list` for authoritative parameter schemas; clients should reconnect after upgrading.
+The public catalog contains 101 explicit tools, 94 enabled by default. [The modernization review](docs/modernization-review.md) maps every previous tool to its current name and explains the architecture and remaining improvements. Fetch `tools/list` for authoritative parameter schemas; clients should reconnect after upgrading.
 
 | Purpose | Representative tools |
 | --- | --- |
 | Project lifecycle | `create_project`, `open_project`, `save_project`, `close_project` |
 | Programs and project files | `get_program_info`, `list_open_programs`, `list_project_files`, `open_program`, `close_program` |
-| Code and functions | `list_functions`, `search_functions`, `get_function_info`, `get_pseudocode`, `get_disassembly`, `get_pcode`, `get_control_flow_graph` |
+| Code and functions | `list_functions`, `search_functions`, `get_function_info`, `get_pseudocode`, `get_pseudocode_batch`, `get_disassembly`, `get_pcode`, `get_control_flow_graph` |
 | Function identity | `get_function_hash` (SHA-256), `get_function_byte_pattern` (masked prefix), `get_function_prototype` (C declaration) |
 | Binary data | `list_imports`, `list_exports`, `list_strings`, `list_memory_blocks`, `list_entry_points`, `get_hexdump` |
 | References | `get_xrefs_to`, `get_xrefs_from`, `get_callers`, `get_callees`, `get_call_graph` |
@@ -245,6 +246,16 @@ Close the project after saving:
 ```
 
 Use `get_disassembly` with the same arguments for assembly. `get_function_hash` computes SHA-256 over the function's body bytes; `get_function_byte_pattern` preserves the previous masked-prefix representation. `get_function_prototype` returns the declaration and calling convention.
+
+For grouped reads, `get_pseudocode_batch` accepts a nonempty list of function names, qualified names, or addresses in one program and shares one configured decompiler session:
+
+```json
+{"method":"tools/call","params":{"name":"get_pseudocode_batch","arguments":{"functions":["0x401000","0x401080"],"program_name":"/binaries/example"}}}
+```
+
+Full source is returned by default. Optional `start_line` and `max_lines` select a one-based page for each function. Every item reports its returned range, total line count, completeness, and any error. Code appears once in text content; structured content contains metadata. Use addresses to select functions whose names repeat.
+
+An explicitly cancelled asynchronous batch uses the standard cancelled-task response; partial source is not guaranteed to be returned. Batch decompiler sessions and repeated-function results are reused within a request; batches do not enter the cross-request response cache.
 
 Long-running operations normally return a job ID when async execution is enabled. Poll `get_task_status` with `task_id` to retrieve the result, or `cancel_task` to cancel. These tools are an application job API, separate from the optional MCP Tasks extension.
 
