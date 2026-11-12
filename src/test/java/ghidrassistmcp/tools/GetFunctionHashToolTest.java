@@ -11,8 +11,8 @@ import ghidrassistmcp.GhidrAssistMCPBackend;
 import ghidrassistmcp.tasks.McpTask;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.LockSupport;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressFactory;
 import ghidra.program.model.address.AddressSet;
@@ -58,7 +58,52 @@ class GetFunctionHashToolTest {
         assertTrue(McpJsonDefaults.getSchemaValidator().validate(new GetFunctionHashTool().getOutputSchema(), content).valid());
     }
 
-    @Test void defaultAsyncHandleAndCompletedHashBothSatisfyAdvertisedOutputSchema() {
+    @Test void slowAsyncHandleAndCompletedHashBothSatisfyAdvertisedOutputSchema() throws Exception {
+        AddressSpace space = new GenericAddressSpace("ram", 32, AddressSpace.TYPE_RAM, 0);
+        Address entry = space.getAddress(0x1000);
+        AddressSet body = new AddressSet(entry, entry.add(3));
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch releaseRead = new CountDownLatch(1);
+        Memory memory = fake(Memory.class, (method, args) -> {
+            reading.countDown();
+            if (!releaseRead.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Test read was not released");
+            byte[] bytes = (byte[]) args[1];
+            int count = (Integer) args[3];
+            for (int i = 0; i < count; i++) bytes[i] = (byte) i;
+            return count;
+        });
+        Program program = program(body, entry, memory);
+        GhidrAssistMCPBackend backend = new GhidrAssistMCPBackend() {
+            @Override public Program getCurrentProgram() { return program; }
+            @Override public List<Program> getAllOpenPrograms() { return List.of(program); }
+        };
+        try {
+            var schema = backend.getAvailableTools().stream().filter(tool -> tool.name().equals("get_function_hash"))
+                .findFirst().orElseThrow().outputSchema();
+            var submitted = backend.callTool("get_function_hash", Map.of("function", "0x1000"));
+            assertTrue(reading.await(2, TimeUnit.SECONDS));
+            assertFalse(Boolean.TRUE.equals(submitted.isError()));
+            @SuppressWarnings("unchecked")
+            Map<String, Object> handle = (Map<String, Object>) submitted.structuredContent();
+            assertNotNull(handle);
+            assertTrue(handle.containsKey("task_id"), handle.toString());
+            var validation = McpJsonDefaults.getSchemaValidator().validate(schema, handle);
+            assertTrue(validation.valid(), validation.errorMessage());
+            McpTask task = backend.getTaskManager().getTask((String) handle.get("task_id"));
+            releaseRead.countDown();
+            assertTrue(task.awaitCompletion(2000));
+            assertEquals(McpTask.Status.COMPLETED, task.getStatus());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> finalContent = (Map<String, Object>) backend.callTool("get_task_status",
+                Map.of("task_id", task.getTaskId())).structuredContent();
+            assertTrue(finalContent.containsKey("hash"));
+            assertFalse(finalContent.containsKey("task_id"));
+            validation = McpJsonDefaults.getSchemaValidator().validate(schema, finalContent);
+            assertTrue(validation.valid(), validation.errorMessage());
+        } finally { releaseRead.countDown(); backend.shutdown(); }
+    }
+
+    @Test void fastHashReturnsFinalContentInlineMatchingAdvertisedSchema() {
         AddressSpace space = new GenericAddressSpace("ram", 32, AddressSpace.TYPE_RAM, 0);
         Address entry = space.getAddress(0x1000);
         AddressSet body = new AddressSet(entry, entry.add(3));
@@ -76,21 +121,13 @@ class GetFunctionHashToolTest {
         try {
             var schema = backend.getAvailableTools().stream().filter(tool -> tool.name().equals("get_function_hash"))
                 .findFirst().orElseThrow().outputSchema();
-            var submitted = backend.callTool("get_function_hash", Map.of("function", "0x1000"));
-            assertFalse(Boolean.TRUE.equals(submitted.isError()));
+            var response = backend.callTool("get_function_hash", Map.of("function", "0x1000"));
+            assertFalse(Boolean.TRUE.equals(response.isError()));
             @SuppressWarnings("unchecked")
-            Map<String, Object> handle = (Map<String, Object>) submitted.structuredContent();
-            assertNotNull(handle);
-            assertTrue(handle.containsKey("task_id"), handle.toString());
-            var validation = McpJsonDefaults.getSchemaValidator().validate(schema, handle);
-            assertTrue(validation.valid(), validation.errorMessage());
-            McpTask task = backend.getTaskManager().getTask((String) handle.get("task_id"));
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-            while (!task.isTerminal() && System.nanoTime() < deadline) LockSupport.parkNanos(1_000_000);
-            assertEquals(McpTask.Status.COMPLETED, task.getStatus());
-            @SuppressWarnings("unchecked")
-            Map<String, Object> finalContent = (Map<String, Object>) task.getResult().structuredContent();
-            validation = McpJsonDefaults.getSchemaValidator().validate(schema, finalContent);
+            Map<String, Object> content = (Map<String, Object>) response.structuredContent();
+            assertTrue(content.containsKey("hash"), content.toString());
+            assertFalse(content.containsKey("task_id"));
+            var validation = McpJsonDefaults.getSchemaValidator().validate(schema, content);
             assertTrue(validation.valid(), validation.errorMessage());
         } finally { backend.shutdown(); }
     }

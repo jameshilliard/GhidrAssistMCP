@@ -97,6 +97,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 public class GhidrAssistMCPBackend implements McpBackend {
 
+    private static final long INLINE_READ_COMPLETION_WAIT_MS = 250;
+
     private final Map<String, McpTool> tools = new ConcurrentHashMap<>();
     private final Map<String, McpTool> legacyAliases = new ConcurrentHashMap<>();
     private final Map<String, Boolean> toolEnabledStates = new ConcurrentHashMap<>();
@@ -519,7 +521,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
     }
 
     /**
-     * Execute a long-running tool asynchronously and return a task ID.
+     * Submit once, returning fast read results inline or a handle for ongoing work.
      */
     private McpSchema.CallToolResult executeToolAsync(McpTool tool, String toolName,
                                                        Map<String, Object> arguments, Program targetProgram) {
@@ -541,18 +543,19 @@ public class GhidrAssistMCPBackend implements McpBackend {
             }
         });
 
-        // Return task information immediately
-        return McpSchema.CallToolResult.builder()
-            .addTextContent("Task submitted for async execution.\n\n" +
-                "Task ID: " + task.getTaskId() + "\n" +
-                "Tool: " + toolName + "\n" +
-                "Status: " + task.getStatus() + "\n\n" +
-                "Use get_task_status with this task_id to check progress and retrieve results.\n" +
-                "Use cancel_task to cancel if needed.")
-            .structuredContent(Map.of("task_id", task.getTaskId(), "tool", toolName,
-                "status", task.getStatus().name().toLowerCase(java.util.Locale.ROOT),
-                "poll_interval_ms", 1000))
-            .build();
+        if (tool.isReadOnly()) {
+            try {
+                task.awaitCompletion(INLINE_READ_COMPLETION_WAIT_MS);
+            } catch (InterruptedException interrupted) {
+                // This is an observation timeout/interruption, not task cancellation.
+                Thread.currentThread().interrupt();
+            }
+            if (task.isTerminal()) {
+                return addActiveContextToResult(taskManager.getTaskResult(task.getTaskId()),
+                    task.getProgramContext());
+            }
+        }
+        return task.toPendingResult();
     }
 
     /**

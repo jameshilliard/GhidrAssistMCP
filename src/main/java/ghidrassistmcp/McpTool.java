@@ -155,7 +155,8 @@ public interface McpTool {
 
     /**
      * Indicates whether the tool is potentially long-running and should be executed asynchronously.
-     * Legacy dispatch returns a task ID immediately and executes in the background.
+     * Legacy dispatch runs tools in the background. Fast reads may finish inline;
+     * ongoing work returns a task ID for polling and cancellation.
      * Protocol calls to tools supporting request monitoring instead stay in flight.
      * Default: false
      */
