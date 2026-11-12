@@ -148,7 +148,7 @@ public final class RationalizedToolCatalog {
         action("scripts", "delete", "delete_script", "Delete a Ghidra script from the user script directory; requires confirm=true. Disabled by default.").parameters("name", "confirm").required("name", "confirm").mutation(true, false).context(false, false);
         action("scripts", "run", "run_script", "Run an existing Ghidra script with optional arguments against the selected program. Disabled by default.").parameters("name", "args").required("name").mutation(true, false);
         tool("export_program", "export_program", "Export program bytes or its original-file representation to a host path. Disabled by default; overwrite defaults to false.");
-        tool("get_task_status", "get_task_status", "Get a custom asynchronous job's status or completed result by task_id.").readOnly().context(false, false);
+        tool("get_task_status", "get_task_status", "Get a job's status or completed result by task_id. Optional wait_ms waits up to 30000 ms for completion.").readOnly().context(false, false);
         tool("cancel_task", "cancel_task", "Request cancellation of a custom asynchronous job by task_id.").mutation(false, true).context(false, false);
         tool("list_tasks", "list_tasks", "List custom asynchronous jobs, optionally filtered by status.").readOnly().context(false, false);
     }
