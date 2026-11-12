@@ -39,6 +39,7 @@ public final class GetPseudocodeBatchTool implements McpTool {
 
     @Override public String getName() { return "get_pseudocode_batch"; }
     @Override public boolean isLongRunning() { return true; }
+    @Override public boolean supportsRequestMonitoring() { return true; }
     // A partially successful batch can contain transient failures. Reuse aliases inside
     // this request, but do not replay those failures from the cross-request cache.
     @Override public boolean isCacheable() { return false; }
@@ -99,6 +100,10 @@ public final class GetPseudocodeBatchTool implements McpTool {
     @Override public McpSchema.CallToolResult execute(Map<String, Object> arguments, Program program) {
         return execute(arguments, program, TaskMonitor.DUMMY);
     }
+    @Override public McpSchema.CallToolResult executeMonitored(Map<String, Object> arguments, Program program,
+            GhidrAssistMCPBackend backend, TaskMonitor monitor) {
+        return execute(arguments, program, monitor == null ? TaskMonitor.DUMMY : monitor);
+    }
     @Override public McpSchema.CallToolResult execute(Map<String, Object> arguments, Program program,
             GhidrAssistMCPBackend backend, McpTask task) {
         return execute(arguments, program, task == null ? TaskMonitor.DUMMY
@@ -142,16 +147,16 @@ public final class GetPseudocodeBatchTool implements McpTool {
         String initializationError = null;
         int succeeded = 0;
         int cancelled = 0;
-        try {
+        try (BatchProgressMonitor progress = new BatchProgressMonitor(monitor, identifiers.size())) {
             for (int index = 0; index < identifiers.size(); index++) {
                 String identifier = identifiers.get(index);
+                TaskMonitor nativeMonitor = progress.beginItem(index, identifier);
                 Map<String, Object> item = item(index, identifier);
                 items.add(item);
-                if (cancelled(monitor)) {
+                if (progress.isCancelled()) {
                     fail(item, "cancelled", "cancelled", "Decompilation cancelled");
                     cancelled++;
                 } else {
-                    monitor.setMessage(identifier);
                     try {
                         ghidra.program.model.listing.Function function = FunctionLookup.findByName(program, identifier);
                         if (function == null) {
@@ -168,10 +173,10 @@ public final class GetPseudocodeBatchTool implements McpTool {
                             } else {
                                 Decompilation result = decompiled.get(function.getEntryPoint());
                                 if (result == null) {
-                                    result = session.decompile(function, monitor);
+                                    result = session.decompile(function, nativeMonitor);
                                     decompiled.put(function.getEntryPoint(), result);
                                 }
-                                if (cancelled(monitor)) {
+                                if (progress.isCancelled()) {
                                     fail(item, "cancelled", "cancelled", "Decompilation cancelled");
                                     cancelled++;
                                 } else if (result.errorCode() != null) {
@@ -184,7 +189,7 @@ public final class GetPseudocodeBatchTool implements McpTool {
                             }
                         }
                     } catch (Exception e) {
-                        if (cancelled(monitor)) {
+                        if (progress.isCancelled()) {
                             fail(item, "cancelled", "cancelled", "Decompilation cancelled");
                             cancelled++;
                         } else fail(item, "error", "decompilation_error", message(e));
@@ -197,6 +202,7 @@ public final class GetPseudocodeBatchTool implements McpTool {
                         .append(item.get("status")).append("] ").append(failure.get("code"))
                         .append(": ").append(failure.get("message")).append('\n');
                 }
+                progress.completeItem();
             }
         } finally {
             if (session != null) session.close();
@@ -275,9 +281,6 @@ public final class GetPseudocodeBatchTool implements McpTool {
             // Reject fractional/oversized values and NaN/Infinity without coercion.
         }
         throw new IllegalArgumentException(name + " must be an integer between 1 and " + Integer.MAX_VALUE);
-    }
-    private static boolean cancelled(TaskMonitor monitor) {
-        return monitor.isCancelled() || Thread.currentThread().isInterrupted();
     }
     private static String message(Exception error) {
         return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();

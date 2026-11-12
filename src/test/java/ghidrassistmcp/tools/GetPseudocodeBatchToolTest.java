@@ -6,6 +6,7 @@ import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
@@ -24,7 +25,9 @@ import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
+import ghidra.util.task.CancelledListener;
 import ghidra.util.task.TaskMonitor;
+import ghidra.util.task.TaskMonitorAdapter;
 import ghidrassistmcp.GhidrAssistMCPBackend;
 import ghidrassistmcp.tasks.McpTask;
 import io.modelcontextprotocol.json.McpJsonDefaults;
@@ -331,6 +334,35 @@ class GetPseudocodeBatchToolTest {
         assertFalse(tool.isCacheable(), "Partial failures must not be replayed from a cross-request cache");
         assertTrue(tool.isReadOnly());
         assertTrue(tool.isLongRunning());
+        assertTrue(tool.supportsRequestMonitoring());
+    }
+
+    @Test void monitoredProgressCountsAliasesAndErrorsWithoutNativeCounterResets() {
+        Fixture fixture = new Fixture();
+        RecordingMonitor monitor = new RecordingMonitor();
+        FakeSession session = new FakeSession((function, nativeMonitor) -> {
+            nativeMonitor.initialize(999);
+            nativeMonitor.setProgress(800);
+            nativeMonitor.setMessage("native phase");
+            return function.getEntryPoint().getOffset() == 0x2000
+                ? GetPseudocodeBatchTool.Decompilation.failure("timeout", "timed out")
+                : GetPseudocodeBatchTool.Decompilation.success("void complete() {}\n");
+        });
+        AtomicInteger opens = new AtomicInteger();
+        var response = tool(fixture, session, opens).executeMonitored(Map.of("functions",
+            List.of("0x1000", "0x1004", "0x9999", "0x2000")), fixture.program, null, monitor);
+
+        assertFalse(response.isError());
+        assertEquals(List.of(4L), monitor.initializations);
+        assertEquals(List.of(0L, 1L, 2L, 3L, 4L), monitor.progress);
+        assertEquals(List.of("Decompiling 1/4: 0x1000", "Decompiling 2/4: 0x1004",
+            "Decompiling 3/4: 0x9999", "Decompiling 4/4: 0x2000"), monitor.messages);
+        assertEquals(List.of(0x1000L, 0x2000L), session.calls);
+        assertEquals(2, metadata(response).get("succeeded"));
+        assertEquals(2, metadata(response).get("failed"));
+        assertEquals(1, opens.get());
+        assertEquals(1, session.closes);
+        assertEquals(0, monitor.listeners.size());
     }
 
     private static GetPseudocodeBatchTool tool(Fixture fixture, FakeSession session, AtomicInteger opens) {
@@ -367,6 +399,20 @@ class GetPseudocodeBatchToolTest {
             return operation.apply(function, monitor);
         }
         @Override public void close() { closes++; }
+    }
+    private static final class RecordingMonitor extends TaskMonitorAdapter {
+        final List<CancelledListener> listeners = new CopyOnWriteArrayList<>();
+        final List<Long> initializations = new ArrayList<>();
+        final List<Long> progress = new ArrayList<>();
+        final List<String> messages = new ArrayList<>();
+        volatile boolean cancelled;
+        @Override public void initialize(long max) { initializations.add(max); }
+        @Override public void setProgress(long value) { progress.add(value); }
+        @Override public void setMessage(String message) { messages.add(message); }
+        @Override public boolean isCancelled() { return cancelled; }
+        @Override public void addCancelledListener(CancelledListener listener) { listeners.add(listener); }
+        @Override public void removeCancelledListener(CancelledListener listener) { listeners.remove(listener); }
+        @Override public void cancel() { cancelled = true; listeners.forEach(CancelledListener::cancelled); }
     }
     private static void assertPage(Map<String, Object> item, int first, int last, int total, boolean complete) {
         assertEquals(true, item.get("decompilation_complete"));
