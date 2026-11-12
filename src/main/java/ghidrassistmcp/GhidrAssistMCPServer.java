@@ -114,25 +114,16 @@ public class GhidrAssistMCPServer {
                     .keepAliveInterval(Duration.ofSeconds(15))
                     .build();
 
-            // Build MCP server using backend for configuration
+            // Keep guidance in operation-specific descriptions, parameter schemas and annotations.
+            // Some clients append initialize.instructions to every tool, multiplying context cost.
             Msg.info(this, "Building MCP server with backend tools");
             var sseServerBuilder = McpServer.sync(sseTransportProvider)
                 .serverInfo(backend.getServerInfo())
-                .capabilities(backend.getCapabilities())
-                .instructions("Use explicit verb-noun tools such as get_pseudocode and get_disassembly. " +
-                    "Use list_project_files and open_program to begin; list_open_programs shows open targets. " +
-                    "Pass a unique program_name Project Path when several programs are open. " +
-                    "Modification tools change the Ghidra database. Long operations return a task handle; " +
-                    "poll get_task_status to retrieve their result.");
+                .capabilities(backend.getCapabilities());
 
             var streamableServerBuilder = McpServer.sync(streamableTransportProvider)
                 .serverInfo(backend.getServerInfo())
-                .capabilities(backend.getCapabilities())
-                .instructions("Use explicit verb-noun tools such as get_pseudocode and get_disassembly. " +
-                    "Use list_project_files and open_program to begin; list_open_programs shows open targets. " +
-                    "Pass a unique program_name Project Path when several programs are open. " +
-                    "Modification tools change the Ghidra database. Long operations return a task handle; " +
-                    "poll get_task_status to retrieve their result.");
+                .capabilities(backend.getCapabilities());
 
             // Register each tool individually with its own handler
             for (McpSchema.Tool toolSchema : backend.getAvailableTools()) {

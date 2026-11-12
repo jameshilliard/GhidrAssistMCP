@@ -51,6 +51,9 @@ class LegacySseIntegrationTest {
             JsonNode initialized = mapper.readTree(readData(events, reader));
             assertEquals(1, initialized.path("id").asInt());
             assertEquals("2024-11-05", initialized.path("result").path("protocolVersion").asText());
+            assertTrue(initialized.path("result").path("instructions").isMissingNode()
+                || initialized.path("result").path("instructions").isNull(),
+                "Shared instructions must not be multiplied into every tool by clients");
             post(client, messages, mapper, Map.of("jsonrpc", "2.0", "method", "notifications/initialized"));
             post(client, messages, mapper, Map.of("jsonrpc", "2.0", "id", 2, "method", "tools/list"));
             JsonNode tools = mapper.readTree(readData(events, reader));

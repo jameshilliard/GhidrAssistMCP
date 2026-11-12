@@ -47,6 +47,9 @@ class StreamableHttpIntegrationTest {
             .path("protocolVersion").asText());
         assertEquals("3.0.0", json(initialized).path("result")
             .path("serverInfo").path("version").asText());
+        assertTrue(json(initialized).path("result").path("instructions").isMissingNode()
+            || json(initialized).path("result").path("instructions").isNull(),
+            "Shared instructions must not be multiplied into every tool by clients");
         sessionId = initialized.headers().firstValue("Mcp-Session-Id").orElse(null);
         HttpResponse<String> ready = send("notifications/initialized", Map.of(), false);
         assertTrue(ready.statusCode() == 200 || ready.statusCode() == 202, ready.body());

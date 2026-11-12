@@ -303,9 +303,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
         // Create the program_name property schema
         Map<String, Object> programNameSchema = new HashMap<>();
         programNameSchema.put("type", "string");
-        programNameSchema.put("description", "Optional: Name or Ghidra project path of the program/binary to operate on. " +
-            "Use list_open_programs and prefer the listed Project Path when multiple programs share a name. " +
-            "If not specified, uses the currently active program.");
+        programNameSchema.put("description", "Program name or exact project path from list_open_programs; defaults to the active program.");
 
         if (originalSchema == null) {
             // Create a schema with just program_name

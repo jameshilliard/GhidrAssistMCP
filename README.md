@@ -174,6 +174,8 @@ Disposable static-analysis labs may pass `tool_profile=agent_lab`. This enables 
 
 The public catalog contains 100 explicit tools, 93 enabled by default. [The modernization review](docs/modernization-review.md) maps every previous tool to its current name and explains the architecture and remaining improvements. Fetch `tools/list` for authoritative parameter schemas; clients should reconnect after upgrading.
 
+Agent-facing guidance lives in individual tool descriptions, parameter schemas and annotations. The server omits optional initialization instructions because some clients append them to every tool, multiplying context use.
+
 | Purpose | Representative tools |
 | --- | --- |
 | Project lifecycle | `create_project`, `open_project`, `save_project`, `close_project` |
